@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# pkgpull: build and install Arch packages straight from their git repos, from a menu driven
+# by arrow keys and Enter (a TV remote's d-pad and OK).
+#
+# Projects are listed in ~/.config/pkgpull/projects.conf (see projects.conf.example).
+# A project has an update when its branch on the remote has moved past the commit pkgpull last
+# built. pkgpull only knows about builds it made itself.
+set -euo pipefail
+
+CONFIG=${PKGPULL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/pkgpull/projects.conf}
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/pkgpull
+STATE=${XDG_STATE_HOME:-$HOME/.local/state}/pkgpull
+
+die() { printf 'pkgpull: %s\n' "$*" >&2; exit 1; }
+
+NAMES=()
+declare -A REPO=() BRANCH=() SUBDIR=() STATUS=() REMOTE=() COMMIT=() PKGS=() MAKEPKG=()
+DEPS=() ROOT=()
+CARCH=$(uname -m)
+
+load_config() {
+    [[ -f $CONFIG ]] || die "no config at $CONFIG (copy /usr/share/doc/pkgpull/projects.conf.example there)"
+    local section='' line key val n=0
+    while IFS= read -r line || [[ -n $line ]]; do
+        n=$((n + 1))
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z $line || $line == \#* ]] && continue
+        if [[ $line =~ ^\[([A-Za-z0-9._-]+)\]$ ]]; then
+            section=${BASH_REMATCH[1]}
+            [[ -v REPO[$section] ]] && die "$CONFIG:$n: [$section] is listed twice"
+            NAMES+=("$section")
+            REPO[$section]='' BRANCH[$section]='' SUBDIR[$section]='.'
+            continue
+        fi
+        [[ $line =~ ^([a-z]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || die "$CONFIG:$n: cannot read '$line'"
+        [[ -n $section ]] || die "$CONFIG:$n: '$line' comes before any [project]"
+        key=${BASH_REMATCH[1]} val=${BASH_REMATCH[2]}
+        case $key in
+            repo) REPO[$section]=$val ;;
+            branch) BRANCH[$section]=$val ;;
+            pkgbuild) SUBDIR[$section]=$val ;;
+            makepkg) MAKEPKG[$section]=$val ;;
+            *) die "$CONFIG:$n: unknown key '$key' (repo, branch, pkgbuild, makepkg)" ;;
+        esac
+    done < "$CONFIG"
+    ((${#NAMES[@]})) || die "$CONFIG lists no projects"
+    local name
+    for name in "${NAMES[@]}"; do
+        [[ -n ${REPO[$name]} ]] || die "[$name] in $CONFIG has no repo"
+    done
+}
+
+# The remote's branch head, or nothing when the remote cannot be reached.
+remote_head() {
+    local name=$1 ref=HEAD
+    [[ -n ${BRANCH[$name]} ]] && ref=refs/heads/${BRANCH[$name]}
+    GIT_TERMINAL_PROMPT=0 timeout 20 git ls-remote "${REPO[$name]}" "$ref" 2>/dev/null |
+        awk -v ref="$ref" '$2 == ref { print $1; exit }'
+}
+
+check_all() {
+    local name built
+    printf '\e[2J\e[HChecking for updates…\n'
+    for name in "${NAMES[@]}"; do
+        REMOTE[$name]=$(remote_head "$name" || true)
+        built=$(cat "$STATE/$name" 2>/dev/null || true)
+        if [[ -z ${REMOTE[$name]} ]]; then
+            STATUS[$name]='cannot reach the repo'
+        elif [[ -z $built ]]; then
+            STATUS[$name]='never built here'
+        elif [[ $built == "${REMOTE[$name]}" ]]; then
+            STATUS[$name]="up to date (${built:0:7})"
+        else
+            STATUS[$name]="update: ${built:0:7} → ${REMOTE[$name]:0:7}"
+        fi
+    done
+}
+
+has_update() { [[ ${STATUS[$1]} == update:* || ${STATUS[$1]} == never* ]]; }
+
+# Fetches and resets the clone, then adds the PKGBUILD's dependencies to DEPS.
+prepare_one() {
+    local name=$1 dir=$CACHE/$1 ref line
+    printf '\n\e[1m==> %s\e[0m\n' "$name"
+    if [[ -d $dir/.git ]]; then
+        git -C "$dir" remote set-url origin "${REPO[$name]}"
+        git -C "$dir" fetch --prune origin || return
+    else
+        mkdir -p "$CACHE"
+        git clone "${REPO[$name]}" "$dir" || return
+    fi
+    ref=origin/HEAD
+    if [[ -n ${BRANCH[$name]} ]]; then
+        ref=origin/${BRANCH[$name]}
+    else
+        git -C "$dir" remote set-head origin --auto >/dev/null || return
+    fi
+    # makepkg rewrites pkgver in the PKGBUILD; drop that before moving on. Untracked files
+    # (makepkg's src/ and its build caches) stay, so rebuilds are incremental.
+    git -C "$dir" reset --hard --quiet "$ref" || return
+    [[ -f $dir/${SUBDIR[$name]}/PKGBUILD ]] || {
+        printf 'no PKGBUILD in %s\n' "${SUBDIR[$name]}" >&2
+        return 1
+    }
+    COMMIT[$name]=$(git -C "$dir" rev-parse "$ref") || return
+    # Everything makepkg would want installed, including the arch-specific arrays.
+    while IFS= read -r line; do
+        if [[ $line =~ ^[[:space:]]*(make|check)?depends(_$CARCH)?[[:space:]]*=[[:space:]]*(.+)$ ]]; then
+            DEPS+=("${BASH_REMATCH[3]}")
+        fi
+    done < <(cd "$dir/${SUBDIR[$name]}" && makepkg --printsrcinfo)
+}
+
+# Builds without root and adds the built package files to PKGS.
+build_one() {
+    local name=$1 dir=$CACHE/$1/${SUBDIR[$1]} f extra=()
+    read -ra extra <<< "${MAKEPKG[$name]:-}"
+    printf '\n\e[1m==> building %s\e[0m\n' "$name"
+    (cd "$dir" && makepkg --force "${extra[@]}") || return
+    while IFS= read -r f; do
+        [[ -f $f ]] && PKGS[$name]+="$f"$'\n'
+    done < <(cd "$dir" && makepkg --packagelist)
+    [[ -n ${PKGS[$name]:-} ]] || { printf 'no package was built\n' >&2; return 1; }
+}
+
+# Picks how to get root: sudo without a password if allowed, else the desktop's polkit popup.
+pick_root() {
+    if sudo -n /usr/bin/pacman -V >/dev/null 2>&1; then
+        ROOT=(sudo -n /usr/bin/pacman)
+    elif command -v pkexec >/dev/null; then
+        ROOT=(pkexec /usr/bin/pacman)
+    else
+        printf '\e[1;31mNo way to get root without a keyboard.\e[0m\n'
+        printf 'Install polkit (and a polkit agent), or set up passwordless sudo for pacman.\n\n'
+        return 1
+    fi
+}
+
+run_updates() {
+    local name ready=() failed=() missing=() files=() f
+    DEPS=() PKGS=() COMMIT=()
+    printf '\e[?25h\e[2J\e[H'
+    if pick_root; then
+        for name in "$@"; do
+            prepare_one "$name" && ready+=("$name") || failed+=("$name")
+        done
+        # One root call for all missing dependencies.
+        if ((${#DEPS[@]})); then
+            mapfile -t missing < <(pacman -T "${DEPS[@]}" || true)
+        fi
+        if ((${#missing[@]})); then
+            printf '\n\e[1m==> installing dependencies: %s\e[0m\n' "${missing[*]}"
+            if ! "${ROOT[@]}" -S --needed --asdeps --noconfirm -- "${missing[@]}"; then
+                failed+=("${ready[@]}")
+                ready=()
+            fi
+        fi
+        local built=()
+        for name in "${ready[@]}"; do
+            build_one "$name" && built+=("$name") || failed+=("$name")
+        done
+        # One root call to install everything that built.
+        if ((${#built[@]})); then
+            for name in "${built[@]}"; do
+                while IFS= read -r f; do [[ -n $f ]] && files+=("$f"); done <<< "${PKGS[$name]}"
+            done
+            printf '\n\e[1m==> installing %d package file(s)\e[0m\n' "${#files[@]}"
+            if "${ROOT[@]}" -U --noconfirm -- "${files[@]}"; then
+                mkdir -p "$STATE"
+                for name in "${built[@]}"; do printf '%s\n' "${COMMIT[$name]}" > "$STATE/$name"; done
+            else
+                failed+=("${built[@]}")
+            fi
+        fi
+    else
+        failed=("$@")
+    fi
+    if ((${#failed[@]})); then
+        printf '\n\e[1;31mFailed: %s\e[0m\n' "${failed[*]}"
+    else
+        printf '\n\e[1;32mDone.\e[0m\n'
+    fi
+    read -rp 'Press Enter to go back' _ || true
+}
+
+# Reads one key: up, down, enter, back or other.
+read_key() {
+    local k rest
+    IFS= read -rsn1 k || { echo back; return; }
+    case $k in
+        '') echo enter ;;
+        q | Q) echo back ;;
+        k) echo up ;;
+        j) echo down ;;
+        $'\e')
+            rest=''
+            IFS= read -rsn2 -t 0.05 rest || true
+            case $rest in
+                '[A' | OA) echo up ;;
+                '[B' | OB) echo down ;;
+                '') echo back ;;
+                *) echo other ;;
+            esac ;;
+        *) echo other ;;
+    esac
+}
+
+menu() {
+    local sel=0 i key items labels name pending
+    while true; do
+        pending=()
+        for name in "${NAMES[@]}"; do has_update "$name" && pending+=("$name"); done
+        items=("${NAMES[@]}" '*all*' '*check*' '*quit*')
+        labels=()
+        for name in "${NAMES[@]}"; do labels+=("$(printf '%-24s %s' "$name" "${STATUS[$name]}")"); done
+        labels+=("Update all (${#pending[@]} pending)" 'Check again' 'Quit')
+
+        printf '\e[?25l\e[2J\e[H\e[1m  pkgpull\e[0m\n\n'
+        for i in "${!labels[@]}"; do
+            if ((i == sel)); then
+                printf '\e[7m  %s  \e[0m\n' "${labels[$i]}"
+            else
+                printf '  %s\n' "${labels[$i]}"
+            fi
+            ((i == ${#NAMES[@]} - 1)) && printf '\n'
+        done
+        printf '\n  ↑↓ choose · OK update · Back quit\n'
+
+        key=$(read_key)
+        case $key in
+            up) sel=$(((sel - 1 + ${#items[@]}) % ${#items[@]})) ;;
+            down) sel=$(((sel + 1) % ${#items[@]})) ;;
+            back) return ;;
+            enter)
+                case ${items[$sel]} in
+                    '*quit*') return ;;
+                    '*check*') check_all ;;
+                    '*all*')
+                        ((${#pending[@]})) && run_updates "${pending[@]}" && check_all ;;
+                    *) run_updates "${items[$sel]}"; check_all ;;
+                esac ;;
+        esac
+    done
+}
+
+main() {
+    ((EUID != 0)) || die 'run as your own user: makepkg refuses root and asks sudo when it installs'
+    command -v makepkg >/dev/null || die 'makepkg is missing (install base-devel)'
+    load_config
+    [[ -t 0 ]] || die 'needs a terminal'
+    trap 'printf "\e[?25h\e[0m\n"' EXIT
+    check_all
+    menu
+}
+
+main "$@"

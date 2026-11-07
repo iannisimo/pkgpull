@@ -1,0 +1,28 @@
+# Maintainer: Simone Ianniciello <s.ianniciello@studenti.unipi.it>
+pkgname=pkgpull-git
+pkgver=r0.0000000
+pkgrel=1
+pkgdesc='Build and install Arch packages from their git repos, from a remote-friendly menu'
+arch=(any)
+url=https://github.com/iannisimo/pkgpull
+license=(MIT)
+depends=(bash git pacman sudo)
+makedepends=(git)
+optdepends=('polkit: root through the desktop popup when sudo needs a password')
+provides=(pkgpull)
+conflicts=(pkgpull)
+source=("$pkgname::git+$url.git")
+sha256sums=(SKIP)
+
+pkgver() {
+    cd "$pkgname"
+    printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+package() {
+    cd "$pkgname"
+    install -Dm755 pkgpull "$pkgdir/usr/bin/pkgpull"
+    install -Dm644 pkgpull.desktop "$pkgdir/usr/share/applications/pkgpull.desktop"
+    install -Dm644 projects.conf.example "$pkgdir/usr/share/doc/pkgpull/projects.conf.example"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
