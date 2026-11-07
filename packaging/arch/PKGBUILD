@@ -23,7 +23,8 @@ pkgver() {
 package() {
     cd "$pkgname"
     install -Dm755 pkgpull "$pkgdir/usr/bin/pkgpull"
-    install -Dm644 pkgpull.desktop "$pkgdir/usr/share/applications/pkgpull.desktop"
+    install -Dm644 io.github.iannisimo.pkgpull.desktop \
+        "$pkgdir/usr/share/applications/io.github.iannisimo.pkgpull.desktop"
     install -Dm644 projects.conf.example "$pkgdir/etc/pkgpull/projects.conf"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
