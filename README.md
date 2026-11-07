@@ -30,8 +30,11 @@ Picking a project, or **Update all**, does the following:
 ```sh
 git clone https://github.com/iannisimo/pkgpull.git
 cd pkgpull/packaging/arch && makepkg -si
-install -Dm644 /usr/share/doc/pkgpull/projects.conf.example ~/.config/pkgpull/projects.conf
 ```
+
+The config is `/etc/pkgpull/projects.conf`, owned by root, because pkgpull installs whatever it
+lists as root. Edit it with `sudo`. pacman keeps your edits on upgrades (a new default is written
+as `projects.conf.pacnew`).
 
 The `.desktop` file shows up in the launcher as **Update apps**. It runs in your default terminal.
 The example config has a `[pkgpull]` entry, so pkgpull updates itself like any other project.

@@ -1,5 +1,5 @@
-# pkgpull projects: copy to ~/.config/pkgpull/projects.conf
-# (the package ships this file in /usr/share/doc/pkgpull)
+# pkgpull projects: installed as /etc/pkgpull/projects.conf (root-owned, edit it with sudo).
+# pkgpull builds and installs whatever is listed here as root, so only root may change it.
 #
 # [name]    a short name, also used for the cache and state files (letters, digits, . _ -)
 # repo        the git repository to clone and watch (https, or ssh if the HTPC has a key)

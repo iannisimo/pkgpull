@@ -9,6 +9,7 @@ license=(MIT)
 depends=(bash git pacman sudo)
 makedepends=(git)
 optdepends=('polkit: root through the desktop popup when sudo needs a password')
+backup=(etc/pkgpull/projects.conf)
 provides=(pkgpull)
 conflicts=(pkgpull)
 source=("$pkgname::git+$url.git")
@@ -23,6 +24,6 @@ package() {
     cd "$pkgname"
     install -Dm755 pkgpull "$pkgdir/usr/bin/pkgpull"
     install -Dm644 pkgpull.desktop "$pkgdir/usr/share/applications/pkgpull.desktop"
-    install -Dm644 projects.conf.example "$pkgdir/usr/share/doc/pkgpull/projects.conf.example"
+    install -Dm644 projects.conf.example "$pkgdir/etc/pkgpull/projects.conf"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

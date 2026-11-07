@@ -2,12 +2,12 @@
 # pkgpull: build and install Arch packages straight from their git repos, from a menu driven
 # by arrow keys and Enter (a TV remote's d-pad and OK).
 #
-# Projects are listed in ~/.config/pkgpull/projects.conf (see projects.conf.example).
+# Projects are listed in /etc/pkgpull/projects.conf (see projects.conf.example).
 # A project has an update when its branch on the remote has moved past the commit pkgpull last
 # built. pkgpull only knows about builds it made itself.
 set -euo pipefail
 
-CONFIG=${PKGPULL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/pkgpull/projects.conf}
+CONFIG=${PKGPULL_CONFIG:-/etc/pkgpull/projects.conf}
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/pkgpull
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/pkgpull
 
@@ -19,7 +19,7 @@ DEPS=() ROOT=()
 CARCH=$(uname -m)
 
 load_config() {
-    [[ -f $CONFIG ]] || die "no config at $CONFIG (copy /usr/share/doc/pkgpull/projects.conf.example there)"
+    [[ -f $CONFIG ]] || die "no config at $CONFIG"
     local section='' line key val n=0
     while IFS= read -r line || [[ -n $line ]]; do
         n=$((n + 1))
