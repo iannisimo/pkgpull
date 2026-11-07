@@ -245,8 +245,15 @@ menu() {
     done
 }
 
+# Started from a launcher (no terminal): run again in the user's default terminal.
+relaunch_in_terminal() {
+    command -v xdg-terminal-exec >/dev/null || die 'needs a terminal (or install xdg-terminal-exec)'
+    exec xdg-terminal-exec "$(realpath "$0")"
+}
+
 main() {
     ((EUID != 0)) || die 'run as your own user: makepkg refuses root and asks sudo when it installs'
+    [[ -t 0 ]] || relaunch_in_terminal
     command -v makepkg >/dev/null || die 'makepkg is missing (install base-devel)'
     load_config
     [[ -t 0 ]] || die 'needs a terminal'
