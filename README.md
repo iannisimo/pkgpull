@@ -36,7 +36,7 @@ The config is `/etc/pkgpull/projects.conf`, owned by root, because pkgpull insta
 lists as root. Edit it with `sudo`. pacman keeps your edits on upgrades (a new default is written
 as `projects.conf.pacnew`).
 
-The `.desktop` file shows up in the launcher as **Update apps**. It runs in your default terminal.
+The `.desktop` file shows up in the launcher as **PkgPull**. It runs in your default terminal.
 The example config has a `[pkgpull]` entry, so pkgpull updates itself like any other project.
 
 Requirements: `git` and `base-devel`.

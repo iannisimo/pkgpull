@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Update apps
+Name=PkgPull
 Comment=Build and install the latest version of apps tracked from git
 Exec=pkgpull
 Terminal=true
