@@ -1,12 +1,14 @@
 # pkgpull projects: installed as /etc/pkgpull/projects.conf (root-owned, edit it with sudo).
 # pkgpull builds and installs whatever is listed here as root, so only root may change it.
 #
-# [name]    a short name, also used for the cache and state files (letters, digits, . _ -)
+# [name]      a short name, also used for the cache and state files (letters, digits, . _ -)
 # repo        the git repository to clone and watch (https, or ssh if the HTPC has a key)
 # branch      the branch to build (optional; the remote's default branch otherwise)
 # pkgbuild    the directory inside the repo holding the PKGBUILD (optional; the repo's root otherwise)
+# makepkg     extra flags for makepkg when building this project (optional)
 
 # pkgpull updates itself
 [pkgpull]
 repo = https://github.com/iannisimo/pkgpull.git
 pkgbuild = packaging/arch
+# makepkg = --nocheck
