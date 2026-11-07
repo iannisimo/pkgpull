@@ -45,7 +45,7 @@ Requirements: `git` and `base-devel`.
 
 - pkgpull only knows about builds it made itself. A project you installed some other way shows
   `never built here` until pkgpull builds it once.
-- Root: pkgpull builds as your user, then needs root twice per run: one `pacman -S` for missing
+- Root: pkgpull builds as your user, then needs root twice per run: one `pacman -Sy` for missing
   dependencies and one `pacman -U` for all built packages. It uses `sudo -n` if that works without
   a password, otherwise `pkexec`, which shows the desktop's polkit popup. If neither is available
   it stops before building.

@@ -151,7 +151,7 @@ run_updates() {
         fi
         if ((${#missing[@]})); then
             printf '\n\e[1m==> installing dependencies: %s\e[0m\n' "${missing[*]}"
-            if ! "${ROOT[@]}" -S --needed --asdeps --noconfirm -- "${missing[@]}"; then
+            if ! "${ROOT[@]}" -Sy --needed --asdeps --noconfirm -- "${missing[@]}"; then
                 failed+=("${ready[@]}")
                 ready=()
             fi
