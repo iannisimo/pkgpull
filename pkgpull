@@ -226,6 +226,7 @@ menu() {
             ((i == ${#NAMES[@]} - 1)) && printf '\n'
         done
         printf '\n  ↑↓ choose · OK update · Back quit\n'
+        printf '  config: %s\n' "$CONFIG"
 
         key=$(read_key)
         case $key in
